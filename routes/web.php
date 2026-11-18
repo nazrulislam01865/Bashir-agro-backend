@@ -1,0 +1,77 @@
+<?php
+
+use App\Http\Controllers\Admin\AppHeaderController;
+use App\Http\Controllers\Admin\AuditController;
+use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\FarmerController;
+use App\Http\Controllers\Admin\FarmLocationController;
+use App\Http\Controllers\Admin\GlobalSearchController;
+use App\Http\Controllers\Admin\MonitoringController;
+use App\Http\Controllers\Admin\NotificationController;
+use App\Http\Controllers\Admin\ReportController;
+use App\Http\Controllers\Admin\SettingsController;
+use App\Http\Controllers\Admin\TaskAssignmentController;
+use App\Http\Controllers\Admin\TaskTemplateController;
+use App\Http\Controllers\Auth\LoginController;
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\EvidenceMediaController;
+
+// Signed, short-lived evidence links (new files use the private storage disk).
+Route::get('/evidence/{photo}', [EvidenceMediaController::class, 'show'])
+    ->middleware(['signed', 'throttle:120,1'])->name('evidence.show');
+
+Route::view('/privacy-policy', 'public.privacy')->name('privacy.policy');
+
+// Redirect root to dashboard (if authenticated) or login
+Route::get('/', function () {
+    return auth()->check()
+        ? redirect()->route('admin.dashboard')
+        : redirect()->route('login');
+});
+
+// Authentication Routes
+Route::middleware('guest')->group(function () {
+    Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
+    Route::post('/login', [LoginController::class, 'login']);
+});
+
+Route::post('/logout', [LoginController::class, 'logout'])
+    ->middleware('auth')
+    ->name('admin.logout');
+
+// Protected Admin Routes
+Route::prefix('admin')
+    ->name('admin.')
+    ->middleware(['auth', \App\Http\Middleware\EnsureWebAdmin::class])
+    ->group(function () {
+        Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+        Route::resource('farmers', FarmerController::class);
+        Route::resource('locations', FarmLocationController::class);
+        Route::post('locations/{location}/farmers', [FarmLocationController::class, 'attachFarmer'])->name('locations.farmers.attach');
+        Route::delete('locations/{location}/farmers/{farmer}', [FarmLocationController::class, 'detachFarmer'])->name('locations.farmers.detach');
+        Route::resource('tasks', TaskTemplateController::class);
+        Route::resource('assignments', TaskAssignmentController::class);
+        Route::post('assignments/{assignment}/reassign', [TaskAssignmentController::class, 'reassign'])->name('assignments.reassign');
+        Route::post('assignments/recurring/{recurringGroupId}/cancel', [TaskAssignmentController::class, 'cancelRecurringSeries'])->name('assignments.recurring.cancel');
+        Route::delete('assignments/recurring/{recurringGroupId}', [TaskAssignmentController::class, 'destroyRecurringSeries'])->name('assignments.recurring.destroy');
+        Route::post('assignments/{assignment}/review', [TaskAssignmentController::class, 'reviewSubmission'])->name('assignments.review');
+        Route::get('/monitoring', [MonitoringController::class, 'index'])->name('monitoring');
+        Route::get('/reports', [ReportController::class, 'index'])->name('reports');
+        Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications');
+        Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
+        Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
+        Route::delete('/notifications/{id}', [NotificationController::class, 'destroy'])->name('notifications.destroy');
+        Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
+        Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+        Route::put('/settings/mobile-headers/{screen}', [AppHeaderController::class, 'update'])->name('settings.mobile-headers.update');
+        Route::get('/audit', [AuditController::class, 'index'])->name('audit');
+        Route::get('/global-search', [GlobalSearchController::class, 'search'])->name('global-search');
+        Route::post('/session/keep-alive', function () {
+            return response()->json(['status' => 'active', 'timestamp' => now()->timestamp]);
+        })->name('session.keep-alive');
+    });
+
+// Swagger UI API Documentation (powered by Scramble OpenAPI spec)
+Route::get('/api/documentation', function () {
+    return view('swagger');
+})->name('api.documentation');

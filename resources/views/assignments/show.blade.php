@@ -1,0 +1,1157 @@
+@extends('layouts.admin')
+
+@section('title', "কাজের বরাদ্দ বিবরণ — #{$assignment->id} — আমার ফার্ম")
+
+@push('styles')
+    <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <style>
+        .map-verification-card {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            background: #0f172a;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+            margin-top: 14px;
+            margin-bottom: 20px;
+        }
+        #submission-verification-map {
+            width: 100%;
+            height: 400px;
+        }
+        .map-marker-farmer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            z-index: 10;
+        }
+        .map-marker-farmer .dot {
+            width: 18px;
+            height: 18px;
+            background: #0284c7;
+            border: 3px solid #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(2, 132, 199, 0.9);
+            position: relative;
+            z-index: 2;
+        }
+        .map-marker-farmer .pulse {
+            position: absolute;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: rgba(2, 132, 199, 0.4);
+            animation: map-marker-pulse 2s infinite ease-out;
+            z-index: 1;
+        }
+        @keyframes map-marker-pulse {
+            0% { transform: scale(0.5); opacity: 1; }
+            100% { transform: scale(1.7); opacity: 0; }
+        }
+        .map-marker-label {
+            background: rgba(15, 23, 42, 0.9);
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 7px;
+            border-radius: 4px;
+            margin-top: 4px;
+            white-space: nowrap;
+            border: 1px solid rgba(255,255,255,0.25);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+        }
+        .map-marker-photo {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            z-index: 15;
+            transition: transform 0.2s ease;
+        }
+        .map-marker-photo:hover {
+            transform: scale(1.1);
+        }
+        .map-marker-photo .badge {
+            background: #e11d48;
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+            border: 1.8px solid #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+        .map-marker-photo.inside .badge {
+            background: #059669;
+        }
+        .map-marker-farm {
+            background: rgba(15, 23, 42, 0.92);
+            color: #00e676;
+            border: 1.5px solid #00e676;
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+        .map-legend-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 10px 16px;
+            background: #ffffff;
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+        }
+        .map-legend-items {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 16px;
+        }
+        .map-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+            color: var(--text);
+        }
+        .map-legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+    </style>
+@endpush
+
+@section('content')
+<div class="page">
+    <div class="head">
+        <div>
+            <h1>কাজের বরাদ্দ বিবরণ</h1>
+            @if($assignment->is_self_reported)
+                <p>বরাদ্দ আইডি: <span style="font-weight:700;color:var(--g800)">#{{ $assignment->id }}</span> • <span class="pill" style="background:#eaf8ef;color:#08783f;font-size:11px;">🌱 স্ব-প্রতিবেদিত কাজ</span> ({{ $assignment->farmer->full_name ?? '' }})</p>
+            @else
+                <p>বরাদ্দ আইডি: <span style="font-weight:700;color:var(--g800)">#{{ $assignment->id }}</span> • {{ $assignment->taskTemplate->name ?? '' }} ({{ $assignment->farmer->full_name ?? '' }})</p>
+            @endif
+        </div>
+        <div class="actions">
+            @if(! $assignment->is_self_reported)
+                <a href="{{ route('admin.assignments.edit', $assignment) }}" class="btn primary">তথ্য সম্পাদনা</a>
+            @endif
+            <form method="POST" action="{{ route('admin.assignments.destroy', $assignment) }}" style="display:inline;" onsubmit="return confirm('আপনি কি নিশ্চিত যে এই কাজের বরাদ্দটি মুছে ফেলতে চান? এটি সফট ডিলিট হবে।');">
+                @csrf
+                @method('DELETE')
+                <button type="submit" class="btn red">মুছে ফেলুন</button>
+            </form>
+            <a href="{{ route('admin.assignments.index') }}" class="btn">← তালিকায় ফিরুন</a>
+        </div>
+    </div>
+
+    @if($assignment->is_self_reported)
+        <div style="background:#f0fdf4;border:1.5px solid #86efac;padding:16px 20px;border-radius:10px;margin-bottom:16px;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+            <div style="display:flex;align-items:flex-start;gap:12px;">
+                <span style="font-size:28px;">🎙️</span>
+                <div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <b style="color:#166534;font-size:15.5px;">কৃষক কর্তৃক স্ব-প্রতিবেদিত কাজ</b>
+                        <span class="pill" style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:bold;">মাঠের লাইভ রিপোর্ট</span>
+                        @if($assignment->submission)
+                            @if($assignment->submission->geofence_passed === true)
+                                <span class="pill" style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:bold;">📍 প্লটের ভেতরে</span>
+                            @elseif($assignment->submission->geofence_passed === false)
+                                <span class="pill" style="background:#fef3c7;color:#b45309;font-size:11px;font-weight:bold;">⚠️ প্লটের বাইরে ({{ round($assignment->submission->distance_meters ?? 0) }} মি. দূরে)</span>
+                            @endif
+                        @endif
+                    </div>
+                    <div style="font-size:14px;color:#14532d;margin-top:6px;line-height:1.5;background:#ffffff;padding:8px 12px;border-radius:6px;border:1px solid #bbf7d0;">
+                        <b>কৃষকের মুখের বিবরণ:</b> "{{ $assignment->notes }}"
+                    </div>
+                    <div style="font-size:12px;color:var(--muted);margin-top:6px;">
+                        কৃষক: <b>{{ $assignment->farmer->full_name }}</b> ({{ $assignment->farmer->farmer_code }}) • মোবাইল: <b>{{ $assignment->farmer->phone }}</b> • জমাদানের সময়: <b>{{ $assignment->completed_at ? $assignment->completed_at->format('d F, Y h:i A') : $assignment->created_at->format('d F, Y h:i A') }}</b>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    @if($assignment->is_recurring)
+        <div style="background:#f0fdf4;border:1.5px solid #86efac;padding:14px 18px;border-radius:10px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+                <span style="font-size:24px;">🔄</span>
+                <div>
+                    <b style="color:#166534;font-size:14.5px;">
+                        {{ match($assignment->recurrence_type) { 'daily' => 'দৈনিক', 'weekly' => 'সাপ্তাহিক', 'monthly' => 'মাসিক', default => 'নিয়মিত' } }} পুনরাবৃত্তিমূলক কাজের সিরিজ
+                    </b>
+                    <div style="font-size:12.5px;color:#14532d;margin-top:2px;">
+                        সিরিজ কোড: <code style="background:#dcfce7;padding:2px 6px;border-radius:4px;font-weight:700;">{{ $assignment->recurring_group_id }}</code> • 
+                        সিরিজের ধাপ: <b>#{{ $assignment->recurrence_seq }}</b> (সর্বমোট {{ $assignment->recurrence_total_count }}টি কাজের মধ্যে)
+                    </div>
+                </div>
+            </div>
+            @if(!in_array($assignment->status, ['completed', 'cancelled']))
+                <div>
+                    <button type="button" class="btn soft" style="font-size:12px;padding:6px 12px;color:#dc2626;border-color:#fca5a5;background:#fff;" onclick="openCancelSeriesModal()">
+                        ✕ সম্পূর্ণ সিরিজ বাতিল করুন
+                    </button>
+                </div>
+            @endif
+        </div>
+    @endif
+
+    <div class="grid cols-2">
+        <section class="card">
+            <div class="card-title">
+                <div class="title-left">
+                    <span class="iconbox">✓</span>
+                    <div>
+                        <h2>বরাদ্দের মূল তথ্য</h2>
+                        <div class="sub">সময়সূচি ও বর্তমান অবস্থা</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-grid">
+                <div>
+                    <span class="label">কাজের অবস্থা</span>
+                    @php
+                        $statusMap = [
+                            'assigned' => ['label' => 'বরাদ্দকৃত', 'class' => 'blue'],
+                            'in_progress' => ['label' => 'চলমান', 'class' => 'blue'],
+                            'completed' => ['label' => 'সম্পন্ন', 'class' => ''],
+                            'cancelled' => ['label' => 'বাতিল', 'class' => 'red'],
+                            'late' => ['label' => 'দেরি', 'class' => 'red'],
+                        ];
+                        $stInfo = $statusMap[$assignment->status] ?? ['label' => $assignment->status, 'class' => ''];
+                    @endphp
+                    <span class="pill {{ $stInfo['class'] }}"><span class="dot"></span>{{ $stInfo['label'] }}</span>
+                </div>
+                <div>
+                    <span class="label">অগ্রাধিকার</span>
+                    <span class="pill {{ $assignment->priority_badge_class }}"><span class="dot"></span>{{ $assignment->priority_label }}</span>
+                </div>
+                <div>
+                    <span class="label">বরাদ্দের তারিখ</span>
+                    <b style="font-size:15px;">{{ $assignment->scheduled_date ? $assignment->scheduled_date->format('d F, Y') : '—' }}</b>
+                </div>
+                <div>
+                    <span class="label">সময়সীমা</span>
+                    <b style="font-size:14px;color:var(--ink);">{{ $assignment->formatted_time_range }}</b>
+                    @if($assignment->is_past_deadline && !in_array($assignment->status, ['completed', 'cancelled']))
+                        <span class="pill red" style="margin-top:4px;display:inline-flex;font-size:11px"><span class="dot"></span>সময় অতিক্রান্ত (বিলম্বিত জমা সম্ভব)</span>
+                    @endif
+                </div>
+                <div>
+                    <span class="label">বরাদ্দকারী (অ্যাডমিন / নিয়োজক)</span>
+                    @if($assignment->is_self_reported)
+                        <span class="pill" style="background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;">🌱 কৃষক নিজে (স্ব-প্রতিবেদিত)</span>
+                    @else
+                        <span>{{ $assignment->assigner->name ?? 'সিস্টেম অ্যাডমিন' }}</span>
+                    @endif
+                </div>
+                <div>
+                    <span class="label">বরাদ্দের সময়</span>
+                    <small>{{ $assignment->assigned_at ? $assignment->assigned_at->format('d/m/Y h:i A') : '—' }}</small>
+                </div>
+                <div>
+                    <span class="label">কাজ শুরুর সময়</span>
+                    <small>{{ $assignment->started_at ? $assignment->started_at->format('d/m/Y h:i A') : 'শুরু হয়নি' }}</small>
+                </div>
+                <div>
+                    <span class="label">কাজ সমাপ্তির সময়</span>
+                    <small>{{ $assignment->completed_at ? $assignment->completed_at->format('d/m/Y h:i A') : 'সমাপ্ত হয়নি' }}</small>
+                </div>
+                <div>
+                    <span class="label">মোট কাজের সময় (Duration)</span>
+                    <b style="font-size:13.5px;color:var(--ink);">{{ $assignment->work_duration ?? '—' }}</b>
+                </div>
+                @if($assignment->notes)
+                <div class="field full">
+                    <span class="label">অ্যাডমিনের বিশেষ নোট</span>
+                    <p style="margin:0;padding:10px;background:var(--bg);border-radius:6px;font-size:13px;color:var(--text);">{{ $assignment->notes }}</p>
+                </div>
+                @endif
+            </div>
+
+            <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:12px;color:var(--muted)">তৈরির তারিখ: {{ $assignment->created_at->format('d M, Y') }}</span>
+                <form method="POST" action="{{ route('admin.assignments.destroy', $assignment) }}" onsubmit="return confirm('আপনি কি নিশ্চিত যে এই কাজের বরাদ্দটি মুছে ফেলতে চান?');">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" class="btn red" style="padding:6px 12px;font-size:12px">বরাদ্দ মুছুন</button>
+                </form>
+            </div>
+        </section>
+
+        <div style="display:flex;flex-direction:column;gap:16px;">
+            <section class="card">
+                <div class="card-title">
+                    <div class="title-left">
+                        <span class="iconbox">♟</span>
+                        <div>
+                            <h2>বরাদ্দকৃত কৃষক</h2>
+                            <div class="sub">কার্যসম্পাদনে নিয়োজিত কৃষক</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                    <div>
+                        <b style="font-size:16px;display:block;">{{ $assignment->farmer->full_name ?? '—' }}</b>
+                        <small style="color:var(--muted)">কোড: {{ $assignment->farmer->farmer_code ?? '' }} • মোবাইল: {{ $assignment->farmer->phone ?? '' }}</small>
+                        <br><small style="color:var(--text)">প্রধান কাজ: {{ $assignment->farmer->primary_activity ?? 'কৃষি' }}</small>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        @if($assignment->farmer)
+                            <a href="{{ route('admin.farmers.show', $assignment->farmer) }}" class="btn soft" style="font-size:12px;padding:6px 10px;">কৃষক প্রোফাইল</a>
+                        @endif
+                        @if(!in_array($assignment->status, ['completed', 'cancelled']))
+                            <button type="button" class="btn soft" style="font-size:12px;padding:6px 10px;color:#1d4ed8;border-color:#93c5fd;background:#eff6ff;" onclick="openReassignModal()">
+                                🔄 কৃষক পরিবর্তন
+                            </button>
+                        @endif
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-title">
+                    <div class="title-left">
+                        <span class="iconbox">▣</span>
+                        <div>
+                            <h2>কাজের টেমপ্লেট ও নির্দেশনা</h2>
+                            <div class="sub">কাজের নিয়ম ও প্রয়োজনীয় প্রমাণ</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <b style="font-size:15px;">{{ $assignment->taskTemplate->name ?? '—' }}</b>
+                        <span class="pill blue">{{ $assignment->taskTemplate->category ?? '' }}</span>
+                    </div>
+
+                    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+                        প্রয়োজনীয় ছবি: <b>{{ $assignment->taskTemplate->required_photo_count ?? 1 }}টি</b> • 
+                        ক্যামেরা: <b>{{ ($assignment->taskTemplate->require_realtime_photo ?? true) ? 'লাইভ বাধ্যতামূলক' : 'ঐচ্ছিক' }}</b> • 
+                        জিও-ফেন্স: <b>{{ ($assignment->taskTemplate->require_geofence ?? true) ? 'চালু' : 'বন্ধ' }}</b>
+                    </div>
+
+                    <div style="background:var(--bg);padding:10px;border-radius:6px;font-size:13px;line-height:1.5;">
+                        <span style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">কাজের মূল নির্দেশাবলী:</span>
+                        {{ $assignment->taskTemplate->instructions ?? 'কোনো বিস্তারিত নির্দেশনা নেই' }}
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-title">
+                    <div class="title-left">
+                        <span class="iconbox">⌖</span>
+                        <div>
+                            <h2>নির্ধারিত ফার্ম লোকেশন</h2>
+                            <div class="sub">কাজের ভৌগোলিক অবস্থান ও বাফার এলাকা</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div>
+                        <b style="font-size:15px;display:block;">{{ $assignment->location->name ?? '—' }}</b>
+                        <small style="color:var(--muted)">কোড: {{ $assignment->location->location_code ?? '' }} • ধরন: {{ $assignment->location->type ?? '' }}</small>
+                        <br><small style="color:var(--g800);font-weight:600;">জিও-ফেন্স বাফার: {{ $assignment->location->geofence_radius_meters ?? 20 }} মিটার</small>
+                    </div>
+                    @if($assignment->location)
+                        <a href="{{ route('admin.locations.show', $assignment->location) }}" class="btn soft" style="font-size:12px;padding:6px 10px;">লোকেশন ম্যাপ</a>
+                    @endif
+                </div>
+            </section>
+        </div>
+    </div>
+
+    @if($assignment->submission)
+    <section class="card" style="margin-top:20px;">
+        <div class="card-title">
+            <div class="title-left">
+                <span class="iconbox" style="background:#ecfdf5;color:#059669;">📸</span>
+                <div>
+                    <h2>কাজের প্রমাণ ও প্রতিবেদন যাচাই (Farmer Submission & Verification)</h2>
+                    <div class="sub">কৃষক কর্তৃক প্রেরিত মাঠের ছবি, জিপিএস ও পোস্টজিআইএস (PostGIS) যাচাই প্রতিবেদন</div>
+                </div>
+            </div>
+            <div>
+                @php
+                    $vStatus = $assignment->submission->verification_status ?? 'pending';
+                    $vBadge = match($vStatus) {
+                        'approved' => ['label' => 'যাচাইকৃত ও অনুমোদিত', 'class' => ''],
+                        'rejected' => ['label' => 'প্রত্যাখ্যাত', 'class' => 'red'],
+                        default => ['label' => 'অনুমোদনের অপেক্ষায়', 'class' => 'blue'],
+                    };
+                @endphp
+                <span id="submission-status-pill" class="pill {{ $vBadge['class'] }}"><span class="dot"></span><span id="submission-status-pill-text">{{ $vBadge['label'] }}</span></span>
+            </div>
+        </div>
+
+        <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));margin-bottom:20px;">
+            <div>
+                <span class="label">জমা দেওয়ার সময়</span>
+                <b>{{ $assignment->submission->submitted_at ? $assignment->submission->submitted_at->format('d F, Y — h:i A') : '—' }}</b>
+            </div>
+            <div>
+                <span class="label">জিপিএস স্থানাঙ্ক (GPS)</span>
+                <b>{{ $assignment->submission->latitude }}, {{ $assignment->submission->longitude }}</b>
+                @if($assignment->submission->accuracy)
+                    <small style="color:var(--muted);display:block;">নির্ভুলতা: ±{{ $assignment->submission->accuracy }} মিটার</small>
+                @endif
+            </div>
+            <div>
+                <span class="label">পোস্টজিআইএস জিও-ফেন্স যাচাই</span>
+                @if($assignment->submission->geofence_passed)
+                    <span class="pill" style="background:#ecfdf5;color:#059669;font-weight:600;"><span class="dot" style="background:#059669;"></span>সফল (সীমার ভেতরে)</span>
+                @else
+                    <span class="pill red"><span class="dot"></span>সীমার বাইরে (সতর্কবার্তা)</span>
+                @endif
+                <small style="color:var(--muted);display:block;margin-top:4px;">দূরত্ব: {{ $assignment->submission->distance_meters ?? 0 }} মি. (অনুমোদিত: {{ $assignment->location->geofence_radius_meters ?? 20 }} মি.)</small>
+            </div>
+            <div>
+                <span class="label">কৃষকের নোট</span>
+                <p style="margin:0;font-size:13px;color:var(--text);">{{ $assignment->submission->farmer_note ?? $assignment->submission->notes ?? 'কোনো নোট দেওয়া হয়নি' }}</p>
+            </div>
+        </div>
+
+        @php
+            $photos = $assignment->submission->evidencePhotos ?? collect();
+            $rawPhotos = $assignment->submission->photos ?? [];
+
+            $locationGeoJson = $assignment->location?->getEffectiveBoundaryGeoJson() ?? $assignment->location?->boundary_geojson;
+            $locLat = (float) ($assignment->location?->latitude ?? 0);
+            $locLng = (float) ($assignment->location?->longitude ?? 0);
+            $locRadius = (int) ($assignment->location?->geofence_radius_meters ?? 20);
+            $locName = $assignment->location?->name ?? 'নির্ধারিত কাজের এলাকা';
+            $locCode = $assignment->location?->location_code ?? '';
+
+            $farmerLat = (float) ($assignment->submission->latitude ?? 0);
+            $farmerLng = (float) ($assignment->submission->longitude ?? 0);
+            $farmerAccuracy = (float) ($assignment->submission->accuracy ?? 0);
+            $geofencePassed = (bool) ($assignment->submission->geofence_passed ?? false);
+            $distanceMeters = (float) ($assignment->submission->distance_meters ?? 0);
+
+            $photoMarkers = [];
+            foreach ($photos as $idx => $p) {
+                $pLat = (float) ($p->latitude ?: $farmerLat);
+                $pLng = (float) ($p->longitude ?: $farmerLng);
+                if ($pLat != 0 && $pLng != 0) {
+                    $photoMarkers[] = [
+                        'index' => $idx + 1,
+                        'lat' => $pLat,
+                        'lng' => $pLng,
+                        'time' => $p->captured_at ? $p->captured_at->format('h:i A') : '',
+                        'url' => \App\Support\EvidenceUrl::forPhoto($p),
+                    ];
+                }
+            }
+            if (empty($photoMarkers) && !empty($rawPhotos)) {
+                foreach ($rawPhotos as $idx => $rp) {
+                    if ($farmerLat != 0 && $farmerLng != 0) {
+                        $photoMarkers[] = [
+                            'index' => $idx + 1,
+                            'lat' => $farmerLat,
+                            'lng' => $farmerLng,
+                            'time' => $assignment->submission->submitted_at ? $assignment->submission->submitted_at->format('h:i A') : '',
+                            'url' => asset('storage/' . $rp),
+                        ];
+                    }
+                }
+            }
+        @endphp
+
+        {{-- 🗺️ Spatial Verification Map (Assigned Area + Farmer GPS + Photo Pins) --}}
+        <div style="margin-top:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <h3 style="font-size:14px;font-weight:700;color:var(--text);margin:0;display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:16px;">🗺️</span> মাঠের সীমানা, কৃষকের অবস্থান ও ছবি তোলার স্থান
+                </h3>
+                <div style="font-size:12px;color:var(--muted);">
+                    উপগ্রহ চিত্র (Sentinel-2 Satellite)
+                </div>
+            </div>
+
+            <div class="map-verification-card">
+                <div id="submission-verification-map"></div>
+                <div class="map-legend-bar">
+                    <div class="map-legend-items">
+                        <span class="map-legend-item">
+                            <span class="map-legend-dot" style="background:#00e676;border:1px solid #00c853;"></span>
+                            নির্ধারিত এলাকা: <b>{{ $locName }}</b>
+                        </span>
+                        @if($farmerLat && $farmerLng)
+                            <span class="map-legend-item">
+                                <span class="map-legend-dot" style="background:#0284c7;border:1px solid #0369a1;"></span>
+                                কৃষকের অবস্থান ({{ round($farmerLat, 4) }}, {{ round($farmerLng, 4) }})
+                            </span>
+                        @endif
+                        @if(count($photoMarkers) > 0)
+                            <span class="map-legend-item">
+                                <span class="map-legend-dot" style="background:#e11d48;border:1px solid #be123c;"></span>
+                                প্রামাণ্য ছবি তোলার স্থান ({{ count($photoMarkers) }}টি)
+                            </span>
+                        @endif
+                        @if(!$geofencePassed && $distanceMeters > 0)
+                            <span class="map-legend-item" style="color:#b45309;font-weight:600;">
+                                <span style="display:inline-block;width:14px;height:2px;background:#f59e0b;vertical-align:middle;margin-right:2px;"></span>
+                                সীমানা হতে দূরত্ব: {{ $distanceMeters }} মি. (বাইরে)
+                            </span>
+                        @endif
+                    </div>
+                    <div>
+                        <button type="button" class="btn soft" onclick="window.fitVerificationMap && window.fitVerificationMap()" style="font-size:11.5px;padding:4px 10px;cursor:pointer;">
+                            🔍 সম্পূর্ণ ভিউ ফিট করুন
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top:16px;">
+            <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text);">সংযুক্ত প্রামাণ্য ছবি ({{ $photos->count() ?: count($rawPhotos) }}টি)</h3>
+            <div style="display:grid;grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));gap:12px;">
+                @forelse($photos as $photo)
+                    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg);">
+                        <a href="{{ \App\Support\EvidenceUrl::forPhoto($photo) }}" target="_blank" rel="noopener">
+                            <img src="{{ \App\Support\EvidenceUrl::forPhoto($photo) }}" alt="Evidence" style="width:100%;height:140px;object-fit:cover;display:block;">
+                        </a>
+                        <div style="padding:8px;font-size:11px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;">
+                            <div>
+                                <span>সময়: {{ $photo->captured_at ? $photo->captured_at->format('h:i A') : '—' }}</span>
+                                @if($photo->latitude && $photo->longitude)
+                                    <div style="font-family:monospace;margin-top:2px;">{{ round($photo->latitude, 4) }}, {{ round($photo->longitude, 4) }}</div>
+                                @endif
+                            </div>
+                            <button type="button" onclick="window.focusPhotoPin && window.focusPhotoPin({{ $loop->iteration }})" class="btn soft" style="font-size:10px;padding:3px 6px;cursor:pointer;" title="ম্যাপে এই ছবির অবস্থান দেখুন">
+                                📍 ম্যাপে
+                            </button>
+                        </div>
+                    </div>
+                @empty
+                    @forelse($rawPhotos as $rPhoto)
+                        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg);">
+                            <a href="{{ asset('storage/' . $rPhoto) }}" target="_blank" rel="noopener">
+                                <img src="{{ asset('storage/' . $rPhoto) }}" alt="Evidence" style="width:100%;height:140px;object-fit:cover;display:block;">
+                            </a>
+                        </div>
+                    @empty
+                        <div style="grid-column: 1 / -1;padding:16px;background:var(--bg);border-radius:6px;font-size:13px;color:var(--muted);text-align:center;">
+                            কোনো ছবি আপলোড করা হয়নি।
+                        </div>
+                    @endforelse
+                @endforelse
+            </div>
+        </div>
+
+        <div id="review-section" style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <h3 style="font-size:15px;font-weight:700;margin:0;color:var(--text);">অ্যাডমিন মূল্যায়ন ও অনুমোদন (Admin Verification)</h3>
+                <span id="current-review-badge" class="pill {{ $vStatus === 'approved' ? '' : ($vStatus === 'rejected' ? 'red' : 'blue') }}" style="font-size:11px;">
+                    <span class="dot"></span>
+                    <span id="current-review-badge-text">
+                        @if($vStatus === 'approved')
+                            অনুমোদিত
+                        @elseif($vStatus === 'rejected')
+                            প্রত্যাখ্যাত
+                        @else
+                            অপেক্ষমান
+                        @endif
+                    </span>
+                </span>
+            </div>
+
+            {{-- 1. DECISION SUMMARY CARD (Visible when approved or rejected) --}}
+            <div id="verified-decision-card" class="verified-decision-card {{ $vStatus }}" style="{{ $vStatus === 'pending' ? 'display:none;' : '' }}">
+                <div class="verified-decision-header">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <div class="decision-icon" id="decision-card-icon">
+                            {{ $vStatus === 'rejected' ? '✕' : '✓' }}
+                        </div>
+                        <div>
+                            <div style="font-size:14.5px;font-weight:700;color:var(--text);" id="decision-card-title">
+                                @if($vStatus === 'approved')
+                                    প্রতিবেদনটি অনুমোদিত ও মাঠের তথ্য যাচাইকৃত
+                                @elseif($vStatus === 'rejected')
+                                    প্রতিবেদনটি প্রত্যাখ্যাত হয়েছে (কৃষককে পুনরায় জমার নির্দেশ দেওয়া হয়েছে)
+                                @else
+                                    মূল্যায়ন সম্পন্ন হয়েছে
+                                @endif
+                            </div>
+                            <div style="font-size:12px;color:var(--muted);margin-top:2px;" id="decision-card-subtitle">
+                                @if($assignment->submission->verified_at)
+                                    যাচাইয়ের সময়: {{ $assignment->submission->verified_at->format('d M Y, h:i A') }}
+                                @else
+                                    যাচাই সম্পন্ন হয়েছে
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <button type="button" class="btn outline" id="btn-toggle-edit-review" onclick="window.toggleReviewForm(true)" style="font-size:12px;padding:6px 12px;border-radius:6px;cursor:pointer;">
+                            ✎ সিদ্ধান্ত পরিবর্তন বা পুনঃমূল্যায়ন করুন
+                        </button>
+                    </div>
+                </div>
+
+                <div class="decision-note-box" id="decision-note-container" style="{{ empty($assignment->submission->notes) ? 'display:none;' : '' }}">
+                    <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">অ্যাডমিন নোট / নির্দেশনা:</div>
+                    <div id="decision-card-notes" style="font-size:13px;line-height:1.45;color:var(--text);word-break:break-word;">
+                        {{ $assignment->submission->notes }}
+                    </div>
+                </div>
+            </div>
+
+            {{-- 2. ACTION FORM CONTAINER (Visible when pending, hidden when approved/rejected unless toggled) --}}
+            <div id="review-form-container" style="{{ $vStatus !== 'pending' ? 'display:none;' : '' }}">
+                <div style="margin-bottom:12px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:12.5px;color:#475569;">
+                    মাঠের ছবি, জিপিএস ও দূরত্বের তথ্য যাচাই করে প্রতিবেদন অনুমোদন বা প্রত্যাখ্যান করুন। একবার অনুমোদন বা প্রত্যাখ্যান সংরক্ষণ করলে এই বোতামগুলো সংরক্ষিত অবস্থায় পরিবর্তিত হবে।
+                </div>
+
+                <form id="review-form" method="POST" action="{{ route('admin.assignments.review', $assignment) }}#review-section" style="display:flex;flex-direction:column;gap:12px;">
+                    @csrf
+                    <div>
+                        <label for="review_notes" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">মূল্যায়ন সংক্রান্ত মন্তব্য বা নির্দেশনা (ঐচ্ছিক):</label>
+                        <textarea id="review_notes" name="review_notes" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;line-height:1.4;" placeholder="অনুমোদন বা পুনঃযাচাই সংক্রান্ত নির্দেশনা লিখুন...">{{ $assignment->submission->notes }}</textarea>
+                    </div>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+                        <button type="submit" name="verification_status" value="approved" id="btn-approve" class="btn primary" style="background:#059669;color:#fff;display:inline-flex;align-items:center;gap:6px;padding:9px 18px;font-size:13px;">
+                            <span class="btn-spinner" style="display:none;">⏳ </span>
+                            <span class="btn-label">✓ প্রতিবেদন অনুমোদন করুন</span>
+                        </button>
+                        <button type="submit" name="verification_status" value="rejected" id="btn-reject" class="btn red" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;font-size:13px;">
+                            <span class="btn-spinner" style="display:none;">⏳ </span>
+                            <span class="btn-label">✕ প্রত্যাখ্যান / পুনরায় জমার নির্দেশ দিন</span>
+                        </button>
+                        <button type="button" class="btn text" id="btn-cancel-review" onclick="window.toggleReviewForm(false)" style="{{ $vStatus === 'pending' ? 'display:none;' : '' }};font-size:12px;color:var(--muted);padding:9px 12px;cursor:pointer;">
+                            বাতিল
+                        </button>
+                        <span id="review-submitting-text" style="display:none;font-size:12px;color:var(--muted);">সংরক্ষণ হচ্ছে...</span>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </section>
+    @endif
+
+    <!-- Reassign Farmer Modal -->
+    <div class="modal-overlay" id="reassignModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;align-items:center;justify-content:center;">
+        <div class="modal-card" style="background:#fff;max-width:500px;width:90%;border-radius:12px;padding:22px;box-shadow:0 10px 25px rgba(0,0,0,0.15);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                <b style="font-size:16px;color:#14241d;">🔄 বিকল্প কৃষক প্রতিস্থাপন (Reassign Farmer)</b>
+                <button type="button" onclick="closeReassignModal()" style="border:0;background:none;font-size:22px;color:#8fa298;cursor:pointer;">&times;</button>
+            </div>
+            <p style="font-size:12.5px;color:#6f7f77;margin:0 0 16px;line-height:1.4;">
+                কৃষক অসুস্থ বা অনুপস্থিত থাকলে তার পরিবর্তে অন্য কৃষককে কাজটি অর্পণ করুন।
+            </p>
+
+            <form method="POST" action="{{ route('admin.assignments.reassign', $assignment) }}">
+                @csrf
+                <div style="margin-bottom:14px;">
+                    <label class="label">নতুন কৃষক নির্বাচন করুন <span class="req">*</span></label>
+                    <select class="input" name="new_farmer_id" required>
+                        <option value="">-- কৃষক নির্বাচন করুন --</option>
+                        @foreach($farmers ?? [] as $f)
+                            @if($f->id !== $assignment->farmer_id)
+                                <option value="{{ $f->id }}">{{ $f->full_name }} ({{ $f->farmer_code }}) — {{ $f->phone }}</option>
+                            @endif
+                        @endforeach
+                    </select>
+                </div>
+
+                @if($assignment->is_recurring)
+                <div style="background:#f4fbf6;border:1px solid #d4eedd;padding:12px;border-radius:8px;margin-bottom:14px;">
+                    <b style="font-size:13px;color:#08783f;display:block;margin-bottom:8px;">পুনরাবৃত্তি সিরিজের জন্য প্রযোজ্য বিকল্প:</b>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:8px;cursor:pointer;">
+                        <input type="radio" name="apply_to_future_series" value="0" checked>
+                        <span>শুধুমাত্র এই নির্দিষ্ট দিনের কাজের জন্য পরিবর্তন করুন</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                        <input type="radio" name="apply_to_future_series" value="1">
+                        <span><b>এই সিরিজের ভবিষ্যৎ সকল কাজের জন্য</b> নতুন কৃষককে দায়িত্ব দিন</span>
+                    </label>
+                </div>
+                @endif
+
+                <div style="margin-bottom:16px;">
+                    <label class="label">পরিবর্তনের কারণ বা নোট (ঐচ্ছিক)</label>
+                    <input class="input" type="text" name="reason" placeholder="যেমন: কৃষক অসুস্থ / জরুরি ছুটি">
+                </div>
+
+                <div style="display:flex;justify-content:flex-end;gap:8px;">
+                    <button type="button" class="btn" onclick="closeReassignModal()">বাতিল</button>
+                    <button type="submit" class="btn primary">✓ কৃষক প্রতিস্থাপন নিশ্চিত করুন</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    @if($assignment->is_recurring)
+    <!-- Cancel Series Modal -->
+    <div class="modal-overlay" id="cancelSeriesModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;align-items:center;justify-content:center;">
+        <div class="modal-card" style="background:#fff;max-width:480px;width:90%;border-radius:12px;padding:22px;box-shadow:0 10px 25px rgba(0,0,0,0.15);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                <b style="font-size:16px;color:#dc2626;">✕ সম্পূর্ণ পুনরাবৃত্তি সিরিজ বাতিলকরণ</b>
+                <button type="button" onclick="closeCancelSeriesModal()" style="border:0;background:none;font-size:22px;color:#8fa298;cursor:pointer;">&times;</button>
+            </div>
+            <p style="font-size:13px;color:#4b5563;margin:0 0 14px;line-height:1.4;">
+                আপনি কি নিশ্চিত যে সিরিজ <b>{{ $assignment->recurring_group_id }}</b>-এর সকল অনিষ্পন্ন কাজ বাতিল করতে চান?
+            </p>
+
+            <form method="POST" action="{{ route('admin.assignments.recurring.cancel', $assignment->recurring_group_id) }}">
+                @csrf
+                <div style="margin-bottom:14px;">
+                    <label class="label">যে তারিখ থেকে বাতিল হবে</label>
+                    <input class="input" type="date" name="from_date" value="{{ $assignment->scheduled_date ? $assignment->scheduled_date->toDateString() : date('Y-m-d') }}">
+                </div>
+                <div style="margin-bottom:16px;">
+                    <label class="label">বাতিলের কারণ (ঐচ্ছিক)</label>
+                    <input class="input" type="text" name="reason" placeholder="যেমন: প্রতিকূল আবহাওয়া / পরিকল্পনা পরিবর্তন">
+                </div>
+
+                <div style="display:flex;justify-content:flex-end;gap:8px;">
+                    <button type="button" class="btn" onclick="closeCancelSeriesModal()">বাতিল</button>
+                    <button type="submit" class="btn red">✕ সিরিজ বাতিল নিশ্চিত করুন</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    @endif
+</div>
+@endsection
+
+@push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+<script>
+@include('partials.open_map_styles')
+// Spatial Verification Map Initialization (Assigned Area + Farmer GPS + Photo Pins)
+document.addEventListener('DOMContentLoaded', function () {
+    const mapContainer = document.getElementById('submission-verification-map');
+    if (!mapContainer) return;
+
+    const locationGeoJson = @json($locationGeoJson ?? null);
+    const locLat = {{ $locLat ?? 0 }};
+    const locLng = {{ $locLng ?? 0 }};
+    const locRadius = {{ $locRadius ?? 20 }};
+    const locName = @json($locName ?? 'নির্ধারিত এলাকা');
+
+    const farmerLat = {{ $farmerLat ?? 0 }};
+    const farmerLng = {{ $farmerLng ?? 0 }};
+    const farmerAccuracy = {{ $farmerAccuracy ?? 0 }};
+    const geofencePassed = {{ !empty($geofencePassed) ? 'true' : 'false' }};
+    const distanceMeters = {{ $distanceMeters ?? 0 }};
+    const photoMarkers = @json($photoMarkers ?? []);
+
+    let initialCenter = [90.4203, 24.7471];
+    if (farmerLng && farmerLat) {
+        initialCenter = [farmerLng, farmerLat];
+    } else if (locLng && locLat) {
+        initialCenter = [locLng, locLat];
+    }
+
+    const satelliteStyle = createOpenMapStyle('satellite');
+
+    const map = new maplibregl.Map({
+        container: 'submission-verification-map',
+        style: openMapSatelliteReady ? satelliteStyle : createOpenMapStyle('street'),
+        center: initialCenter,
+        zoom: 16
+    });
+
+    addOpenMapStatus('submission-verification-map', openMapSatelliteReady ? 'satellite' : 'street');
+    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(new maplibregl.FullscreenControl(), 'top-right');
+
+    const allCoords = [];
+    const photoPopups = {};
+
+    function initLayersAndMarkers() {
+        // 1. Assigned Boundary Polygon / Area
+        if (locationGeoJson && locationGeoJson.coordinates) {
+            if (!map.getSource('assigned-area-source')) {
+                map.addSource('assigned-area-source', {
+                    type: 'geojson',
+                    data: {
+                        type: 'Feature',
+                        geometry: locationGeoJson
+                    }
+                });
+                map.addLayer({
+                    id: 'assigned-area-fill',
+                    type: 'fill',
+                    source: 'assigned-area-source',
+                    paint: {
+                        'fill-color': '#00e676',
+                        'fill-opacity': 0.32
+                    }
+                });
+                map.addLayer({
+                    id: 'assigned-area-stroke',
+                    type: 'line',
+                    source: 'assigned-area-source',
+                    paint: {
+                        'line-color': '#00e676',
+                        'line-width': 3.2
+                    }
+                });
+            }
+
+            try {
+                const polyBbox = turf.bbox({ type: 'Feature', geometry: locationGeoJson });
+                allCoords.push([polyBbox[0], polyBbox[1]], [polyBbox[2], polyBbox[3]]);
+            } catch (e) {}
+        } else if (locLat && locLng && locRadius > 0 && typeof turf !== 'undefined') {
+            try {
+                const circle = turf.circle([locLng, locLat], locRadius / 1000, { units: 'kilometers', steps: 64 });
+                if (!map.getSource('assigned-area-source')) {
+                    map.addSource('assigned-area-source', {
+                        type: 'geojson',
+                        data: circle
+                    });
+                    map.addLayer({
+                        id: 'assigned-area-fill',
+                        type: 'fill',
+                        source: 'assigned-area-source',
+                        paint: { 'fill-color': '#00e676', 'fill-opacity': 0.32 }
+                    });
+                    map.addLayer({
+                        id: 'assigned-area-stroke',
+                        type: 'line',
+                        source: 'assigned-area-source',
+                        paint: { 'line-color': '#00e676', 'line-width': 3 }
+                    });
+                }
+                const cBbox = turf.bbox(circle);
+                allCoords.push([cBbox[0], cBbox[1]], [cBbox[2], cBbox[3]]);
+            } catch (e) {}
+        }
+
+        // Assigned Farm centroid marker
+        if (locLat && locLng) {
+            const farmEl = document.createElement('div');
+            farmEl.className = 'map-marker-farm';
+            farmEl.innerHTML = `<span>🌱</span> ${locName}`;
+            new maplibregl.Marker({ element: farmEl, anchor: 'bottom' })
+                .setLngLat([locLng, locLat])
+                .setPopup(new maplibregl.Popup({ offset: 15 }).setHTML(`
+                    <div style="font-size:12px;padding:4px;">
+                        <b style="color:#059669;">🌱 ${locName}</b><br>
+                        নির্ধারিত কাজের প্লট / এলাকা<br>
+                        <small style="color:#64748b;">স্থানাঙ্ক: ${locLat.toFixed(6)}, ${locLng.toFixed(6)}</small>
+                    </div>
+                `))
+                .addTo(map);
+            allCoords.push([locLng, locLat]);
+        }
+
+        // 2. Farmer's Live GPS Submission Marker
+        if (farmerLat && farmerLng) {
+            const farmerEl = document.createElement('div');
+            farmerEl.className = 'map-marker-farmer';
+            farmerEl.innerHTML = `
+                <div style="position:relative;display:flex;align-items:center;justify-content:center;">
+                    <div class="pulse"></div>
+                    <div class="dot"></div>
+                </div>
+                <div class="map-marker-label">📍 কৃষকের অবস্থান</div>
+            `;
+            new maplibregl.Marker({ element: farmerEl, anchor: 'center' })
+                .setLngLat([farmerLng, farmerLat])
+                .setPopup(new maplibregl.Popup({ offset: 20 }).setHTML(`
+                    <div style="font-size:12px;line-height:1.5;padding:4px;">
+                        <b style="color:#0284c7;">📍 কৃষকের জিপিএস সাবমিশন অবস্থান</b><br>
+                        <b>স্থানাঙ্ক:</b> ${farmerLat.toFixed(6)}, ${farmerLng.toFixed(6)}<br>
+                        ${farmerAccuracy ? `<b>নির্ভুলতা:</b> ±${farmerAccuracy} মি.<br>` : ''}
+                        <b>অবস্থা:</b> ${geofencePassed ? '<span style="color:#059669;font-weight:bold;">✅ সীমার ভেতরে</span>' : `<span style="color:#dc2626;font-weight:bold;">⚠️ সীমার বাইরে (${distanceMeters} মি. দূরে)</span>`}
+                    </div>
+                `))
+                .addTo(map);
+            allCoords.push([farmerLng, farmerLat]);
+        }
+
+        // 3. Photo Capture Pins
+        photoMarkers.forEach(photo => {
+            const photoEl = document.createElement('div');
+            photoEl.className = 'map-marker-photo ' + (geofencePassed ? 'inside' : 'outside');
+            photoEl.innerHTML = `<div class="badge">📸 ছবি #${photo.index}</div>`;
+
+            const popup = new maplibregl.Popup({ offset: 25 }).setHTML(`
+                <div style="text-align:center;padding:4px;max-width:180px;">
+                    <a href="${photo.url}" target="_blank" rel="noopener">
+                        <img src="${photo.url}" style="width:100%;height:100px;object-fit:cover;border-radius:6px;margin-bottom:6px;display:block;">
+                    </a>
+                    <b style="font-size:12px;color:#0f172a;">📸 প্রামাণ্য ছবি #${photo.index}</b><br>
+                    ${photo.time ? `<span style="font-size:11px;color:#64748b;">সময়: ${photo.time}</span><br>` : ''}
+                    <span style="font-family:monospace;font-size:11px;color:#475569;">${photo.lat.toFixed(5)}, ${photo.lng.toFixed(5)}</span>
+                </div>
+            `);
+
+            const marker = new maplibregl.Marker({ element: photoEl, anchor: 'bottom' })
+                .setLngLat([photo.lng, photo.lat])
+                .setPopup(popup)
+                .addTo(map);
+
+            photoPopups[photo.index] = { marker: marker, popup: popup, lat: photo.lat, lng: photo.lng };
+            allCoords.push([photo.lng, photo.lat]);
+        });
+
+        // 4. Connecting Line if outside
+        if (!geofencePassed && farmerLat && farmerLng && locLat && locLng) {
+            if (!map.getSource('distance-line-source')) {
+                map.addSource('distance-line-source', {
+                    type: 'geojson',
+                    data: {
+                        type: 'Feature',
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: [[farmerLng, farmerLat], [locLng, locLat]]
+                        }
+                    }
+                });
+                map.addLayer({
+                    id: 'distance-line-layer',
+                    type: 'line',
+                    source: 'distance-line-source',
+                    paint: {
+                        'line-color': '#f59e0b',
+                        'line-width': 2.5,
+                        'line-dasharray': [2, 2]
+                    }
+                });
+            }
+        }
+
+        // Fit Bounds
+        window.fitVerificationMap();
+    }
+
+    window.fitVerificationMap = function () {
+        if (!allCoords.length) return;
+        try {
+            const bounds = allCoords.reduce((b, coord) => b.extend(coord), new maplibregl.LngLatBounds(allCoords[0], allCoords[0]));
+            map.fitBounds(bounds, { padding: 60, maxZoom: 18 });
+        } catch (e) {
+            console.error('Fit bounds error:', e);
+        }
+    };
+
+    window.focusPhotoPin = function (index) {
+        const item = photoPopups[index];
+        if (!item) return;
+        map.flyTo({ center: [item.lng, item.lat], zoom: 18 });
+        item.marker.togglePopup();
+        document.getElementById('submission-verification-map')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
+    if (map.loaded()) {
+        initLayersAndMarkers();
+    } else {
+        map.on('load', initLayersAndMarkers);
+    }
+
+    setTimeout(function () {
+        map.resize();
+    }, 250);
+    window.addEventListener('resize', function () {
+        map.resize();
+    });
+});
+
+window.toggleReviewForm = function(showForm) {
+    const formContainer = document.getElementById('review-form-container');
+    const decisionCard = document.getElementById('verified-decision-card');
+    const cancelBtn = document.getElementById('btn-cancel-review');
+    if (!formContainer) return;
+
+    if (showForm) {
+        formContainer.style.display = 'block';
+        if (cancelBtn) cancelBtn.style.display = 'inline-block';
+        if (decisionCard) decisionCard.style.opacity = '0.6';
+        formContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else {
+        formContainer.style.display = 'none';
+        if (decisionCard) {
+            decisionCard.style.display = 'block';
+            decisionCard.style.opacity = '1';
+        }
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    const reviewForm = document.getElementById('review-form');
+    if (!reviewForm) return;
+
+    let clickedStatus = null;
+    const btnApprove = document.getElementById('btn-approve');
+    const btnReject = document.getElementById('btn-reject');
+    const submittingText = document.getElementById('review-submitting-text');
+
+    if (btnApprove) btnApprove.addEventListener('click', () => { clickedStatus = 'approved'; });
+    if (btnReject) btnReject.addEventListener('click', () => { clickedStatus = 'rejected'; });
+
+    reviewForm.addEventListener('submit', async (e) => {
+        if (!clickedStatus) {
+            clickedStatus = e.submitter ? e.submitter.value : 'approved';
+        }
+
+        e.preventDefault();
+
+        const notes = document.getElementById('review_notes') ? document.getElementById('review_notes').value : '';
+        const token = reviewForm.querySelector('input[name="_token"]')?.value;
+
+        const targetBtn = clickedStatus === 'approved' ? btnApprove : btnReject;
+        
+        btnApprove.disabled = true;
+        btnReject.disabled = true;
+        if (targetBtn) {
+            const spinner = targetBtn.querySelector('.btn-spinner');
+            if (spinner) spinner.style.display = 'inline';
+        }
+        if (submittingText) submittingText.style.display = 'inline';
+
+        try {
+            const response = await fetch(reviewForm.action, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': token,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({
+                    verification_status: clickedStatus,
+                    review_notes: notes
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Server returned ' + response.status);
+            }
+
+            const data = await response.json();
+
+            // Update Decision Card & Elements
+            const decisionCard = document.getElementById('verified-decision-card');
+            const decisionIcon = document.getElementById('decision-card-icon');
+            const decisionTitle = document.getElementById('decision-card-title');
+            const decisionSubtitle = document.getElementById('decision-card-subtitle');
+            const decisionNotesContainer = document.getElementById('decision-note-container');
+            const decisionNotes = document.getElementById('decision-card-notes');
+            const formContainer = document.getElementById('review-form-container');
+
+            const badge = document.getElementById('current-review-badge');
+            const badgeText = document.getElementById('current-review-badge-text');
+            const pill = document.getElementById('submission-status-pill');
+            const pillText = document.getElementById('submission-status-pill-text');
+
+            if (clickedStatus === 'approved') {
+                if (decisionCard) {
+                    decisionCard.className = 'verified-decision-card approved';
+                }
+                if (decisionIcon) decisionIcon.textContent = '✓';
+                if (decisionTitle) decisionTitle.textContent = 'প্রতিবেদনটি অনুমোদিত ও মাঠের তথ্য যাচাইকৃত';
+                if (badge) {
+                    badge.className = 'pill';
+                    if (badgeText) badgeText.textContent = 'অনুমোদিত';
+                }
+                if (pill) {
+                    pill.className = 'pill';
+                    if (pillText) pillText.textContent = 'যাচাইকৃত ও অনুমোদিত';
+                }
+            } else {
+                if (decisionCard) {
+                    decisionCard.className = 'verified-decision-card rejected';
+                }
+                if (decisionIcon) decisionIcon.textContent = '✕';
+                if (decisionTitle) decisionTitle.textContent = 'প্রতিবেদনটি প্রত্যাখ্যাত হয়েছে (কৃষককে পুনরায় জমার নির্দেশ দেওয়া হয়েছে)';
+                if (badge) {
+                    badge.className = 'pill red';
+                    if (badgeText) badgeText.textContent = 'প্রত্যাখ্যাত';
+                }
+                if (pill) {
+                    pill.className = 'pill red';
+                    if (pillText) pillText.textContent = 'প্রত্যাখ্যাত';
+                }
+            }
+
+            if (decisionSubtitle) {
+                const now = new Date();
+                decisionSubtitle.textContent = 'যাচাইয়ের সময়: ' + now.toLocaleString('en-US', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+            }
+
+            if (decisionNotes && decisionNotesContainer) {
+                if (notes && notes.trim() !== '') {
+                    decisionNotes.textContent = notes;
+                    decisionNotesContainer.style.display = 'block';
+                } else {
+                    decisionNotesContainer.style.display = 'none';
+                }
+            }
+
+            // Hide action form and display the permanent decision card
+            if (formContainer) formContainer.style.display = 'none';
+            if (decisionCard) {
+                decisionCard.style.display = 'block';
+                decisionCard.style.opacity = '1';
+                decisionCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+
+            if (window.showToast) {
+                window.showToast(data.message || 'মূল্যায়ন সফলভাবে সংরক্ষিত হয়েছে।');
+            }
+        } catch (err) {
+            console.warn('AJAX submission failed, falling back to standard submit:', err);
+            const hiddenStatus = document.createElement('input');
+            hiddenStatus.type = 'hidden';
+            hiddenStatus.name = 'verification_status';
+            hiddenStatus.value = clickedStatus;
+            reviewForm.appendChild(hiddenStatus);
+            reviewForm.submit();
+            return;
+        } finally {
+            btnApprove.disabled = false;
+            btnReject.disabled = false;
+            if (targetBtn) {
+                const spinner = targetBtn.querySelector('.btn-spinner');
+                if (spinner) spinner.style.display = 'none';
+            }
+            if (submittingText) submittingText.style.display = 'none';
+        }
+    });
+});
+
+window.openReassignModal = function() {
+    const modal = document.getElementById('reassignModal');
+    if (modal) modal.style.display = 'flex';
+};
+window.closeReassignModal = function() {
+    const modal = document.getElementById('reassignModal');
+    if (modal) modal.style.display = 'none';
+};
+window.openCancelSeriesModal = function() {
+    const modal = document.getElementById('cancelSeriesModal');
+    if (modal) modal.style.display = 'flex';
+};
+window.closeCancelSeriesModal = function() {
+    const modal = document.getElementById('cancelSeriesModal');
+    if (modal) modal.style.display = 'none';
+};
+</script>
+@endpush
