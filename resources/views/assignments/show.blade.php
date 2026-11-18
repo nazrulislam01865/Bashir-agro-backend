@@ -484,7 +484,7 @@
                     <span style="font-size:16px;">🗺️</span> মাঠের সীমানা, কৃষকের অবস্থান ও ছবি তোলার স্থান
                 </h3>
                 <div style="font-size:12px;color:var(--muted);">
-                    উপগ্রহ চিত্র (Sentinel-2 Satellite)
+                    উপগ্রহ চিত্র (Google Hybrid Satellite)
                 </div>
             </div>
 
@@ -740,7 +740,6 @@
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
 <script>
-@include('partials.open_map_styles')
 // Spatial Verification Map Initialization (Assigned Area + Farmer GPS + Photo Pins)
 document.addEventListener('DOMContentLoaded', function () {
     const mapContainer = document.getElementById('submission-verification-map');
@@ -766,16 +765,39 @@ document.addEventListener('DOMContentLoaded', function () {
         initialCenter = [locLng, locLat];
     }
 
-    const satelliteStyle = createOpenMapStyle('satellite');
+    const satelliteStyle = {
+        version: 8,
+        sources: {
+            'google-hybrid': {
+                type: 'raster',
+                tiles: [
+                    'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                    'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                    'https://mt2.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                    'https://mt3.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+                ],
+                tileSize: 256,
+                attribution: '&copy; Google Satellite'
+            }
+        },
+        layers: [
+            {
+                id: 'google-hybrid-layer',
+                type: 'raster',
+                source: 'google-hybrid',
+                minzoom: 0,
+                maxzoom: 22
+            }
+        ]
+    };
 
     const map = new maplibregl.Map({
         container: 'submission-verification-map',
-        style: openMapSatelliteReady ? satelliteStyle : createOpenMapStyle('street'),
+        style: satelliteStyle,
         center: initialCenter,
         zoom: 16
     });
 
-    addOpenMapStatus('submission-verification-map', openMapSatelliteReady ? 'satellite' : 'street');
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.addControl(new maplibregl.FullscreenControl(), 'top-right');
 

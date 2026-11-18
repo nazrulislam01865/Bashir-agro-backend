@@ -283,21 +283,43 @@
     <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
     <script>
-        @include('partials.open_map_styles')
         document.addEventListener('DOMContentLoaded', function () {
-            const satelliteStyle = createOpenMapStyle('satellite');
+            // Ultra high-res Google Hybrid Satellite (Photographic + Village Roads + Boundaries)
+            const satelliteStyle = {
+                version: 8,
+                sources: {
+                    'google-hybrid': {
+                        type: 'raster',
+                        tiles: [
+                            'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                            'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                            'https://mt2.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                            'https://mt3.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+                        ],
+                        tileSize: 256,
+                        attribution: '&copy; Google Satellite'
+                    }
+                },
+                layers: [
+                    {
+                        id: 'google-hybrid-layer',
+                        type: 'raster',
+                        source: 'google-hybrid',
+                        minzoom: 0,
+                        maxzoom: 22
+                    }
+                ]
+            };
 
             const lat = {{ $location->latitude ?: 24.7471 }};
             const lng = {{ $location->longitude ?: 90.4203 }};
 
             const map = new maplibregl.Map({
                 container: 'field-show-map',
-                style: openMapSatelliteReady ? satelliteStyle : createOpenMapStyle('street'),
+                style: satelliteStyle,
                 center: [lng, lat],
                 zoom: 16
             });
-
-            addOpenMapStatus('field-show-map', openMapSatelliteReady ? 'satellite' : 'street');
 
             // Prevent layout collapse & ensure tiles render smoothly
             map.on('load', function () {

@@ -4,7 +4,7 @@
 
 @push('styles')
     <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mapbox/mapbox-gl-draw@1.4.3/dist/mapbox-gl-draw.css" type="text/css" />
+    <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css" type="text/css" />
     <style>
         .map-wrapper {
             position: relative;
@@ -349,20 +349,67 @@
 @push('scripts')
     <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <script>
-        // Compatibility alias for the open-source ISC-licensed polygon draw plugin
+        // Set Mapbox alias for complete MapboxDraw plugin compatibility without DRM token checks
         window.mapboxgl = window.maplibregl;
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/@mapbox/mapbox-gl-draw@1.4.3/dist/mapbox-gl-draw.js"></script>
+    <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
 
     <script>
-        @include('partials.open_map_styles')
         document.addEventListener('DOMContentLoaded', function () {
-            const satelliteStyle = createOpenMapStyle('satellite');
-            const streetsStyle = createOpenMapStyle('street');
+            // Ultra high-res Google Hybrid Satellite (Photographic + Village Roads + Boundaries)
+            const satelliteStyle = {
+                version: 8,
+                sources: {
+                    'google-hybrid': {
+                        type: 'raster',
+                        tiles: [
+                            'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                            'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                            'https://mt2.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                            'https://mt3.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+                        ],
+                        tileSize: 256,
+                        attribution: '&copy; Google Satellite'
+                    }
+                },
+                layers: [
+                    {
+                        id: 'google-hybrid-layer',
+                        type: 'raster',
+                        source: 'google-hybrid',
+                        minzoom: 0,
+                        maxzoom: 22
+                    }
+                ]
+            };
 
-            let isSatellite = openMapSatelliteReady || !openMapStreetReady;
-            let currentStyle = isSatellite ? satelliteStyle : streetsStyle;
+            // High-precision OpenStreetMap Streets
+            const streetsStyle = {
+                version: 8,
+                sources: {
+                    'osm-tiles': {
+                        type: 'raster',
+                        tiles: [
+                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+                        ],
+                        tileSize: 256,
+                        attribution: '&copy; OpenStreetMap contributors'
+                    }
+                },
+                layers: [
+                    {
+                        id: 'osm-tiles-layer',
+                        type: 'raster',
+                        source: 'osm-tiles',
+                        minzoom: 0,
+                        maxzoom: 19
+                    }
+                ]
+            };
+
+            let isSatellite = true;
+            let currentStyle = satelliteStyle;
 
             const initialLat = parseFloat(document.getElementById('latitude_input').value) || 24.7471;
             const initialLng = parseFloat(document.getElementById('longitude_input').value) || 90.4203;
@@ -373,8 +420,6 @@
                 center: [initialLng, initialLat],
                 zoom: 16
             });
-
-            const updateOpenMapStatus = addOpenMapStatus('field-map', isSatellite ? 'satellite' : 'street');
 
             // Prevent blank layout collapse
             map.on('load', function () {
@@ -528,15 +573,9 @@
 
             const btnToggleStyle = document.getElementById('btn-toggle-style');
             btnToggleStyle.addEventListener('click', function () {
-                const nextSatellite = !isSatellite;
-                if (nextSatellite ? !openMapSatelliteReady : !openMapStreetReady) {
-                    alert('এই ম্যাপ লেয়ারটি কনফিগার করা হয়নি।');
-                    return;
-                }
                 const currentData = draw.getAll();
-                isSatellite = nextSatellite;
+                isSatellite = !isSatellite;
                 currentStyle = isSatellite ? satelliteStyle : streetsStyle;
-                if (updateOpenMapStatus) updateOpenMapStatus(isSatellite ? 'satellite' : 'street');
 
                 btnToggleStyle.innerHTML = isSatellite ? '<span>🗺️</span> রাস্তাঘাট ভিউ' : '<span>🛰️</span> স্যাটেলাইট ভিউ';
 

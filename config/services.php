@@ -35,4 +35,7 @@ return [
         ],
     ],
 
+    'mapbox' => [
+        'token' => env('MAPBOX_ACCESS_TOKEN'),
+    ],
 ];
