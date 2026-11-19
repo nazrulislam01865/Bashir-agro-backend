@@ -40,6 +40,20 @@ class AppAppearanceTest extends TestCase
             ->assertJsonPath('data.headers.farmers_list.font_size', 20);
     }
 
+    public function test_public_mobile_appearance_reads_existing_admin_site_logo(): void
+    {
+        Setting::set('site_logo', 'branding/mobile-login.png');
+
+        $this->getJson('/api/v1/app-appearance')
+            ->assertOk()
+            ->assertJsonPath('data.branding.logo_url', asset('storage/branding/mobile-login.png'));
+
+        Setting::set('site_logo', '');
+        $this->getJson('/api/v1/app-appearance')
+            ->assertOk()
+            ->assertJsonPath('data.branding.logo_url', null);
+    }
+
     public function test_owner_profile_photo_url_is_available_to_mobile(): void
     {
         $owner = User::factory()->create(['role' => 'owner']);

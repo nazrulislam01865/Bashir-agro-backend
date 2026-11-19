@@ -124,7 +124,7 @@
                             <div style="flex:1;">
                                 <input type="file" id="site_logo" name="site_logo" accept="image/png,image/jpeg,image/webp" class="input" style="padding:6px 10px;font-size:12px;width:100%;" onchange="previewBrandingImage(this, 'logo-preview-img', 'logo-default-icon')">
                                 <small style="color:var(--muted);display:block;margin-top:4px;font-size:11px;">
-                                    সাইডবার ও লগইন পেজে প্রদর্শিত হবে। সর্বোচ্চ সাইজ: 2MB
+                                    অ্যাডমিন প্যানেল ও মোবাইল অ্যাপের লগইন লোগো হিসেবে প্রদর্শিত হবে। সর্বোচ্চ সাইজ: 2MB
                                 </small>
                             </div>
                         </div>
